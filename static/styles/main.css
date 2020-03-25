@@ -1,0 +1,62 @@
+body {
+    background-color: #f5f5f5;
+}
+
+h1 {
+    text-align: center;
+    padding: 10px;
+}
+
+img {
+    display: block;
+    margin: auto;
+}
+
+.row {
+    display: flex;
+    padding-top: 20px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+.column {
+    flex: 50%;
+}
+
+.center {
+    display: block;
+    text-align: center;
+}
+
+.navbar {
+    border-bottom: 1px solid #d4d4d4;
+}
+
+.navbar-brand {
+    margin-left: 0;
+    max-width: 45px;
+}
+
+.bar-title {
+    font-family: "sf-black", sans-serif;
+    font-size: 30px;
+}
+
+.btn-secondary {
+    width: 300px;
+    margin-top: 20px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.form-signin .form-control {
+    width: 300px;
+    margin-top: 20px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+}
+
+.mb-4 {
+    margin-top: 50px;
+}

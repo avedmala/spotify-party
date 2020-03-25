@@ -1,0 +1,5 @@
+flask
+Flask-wtf
+Flask-SQLAlchemy
+spotipy
+git+https://github.com/benoitc/gunicorn.git
