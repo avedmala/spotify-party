@@ -1,65 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, shrink-to-fit=no"
-    />
-    <link rel="icon" href="/static/images/icon.png" />
-    <link rel="stylesheet" href="/static/styles/main.css" />
-    <link
-      rel="stylesheet"
-      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
-    />
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
-    <title>Spotify Party</title>
-  </head>
 
-  <body>
-    <div>
-      <nav class="navbar navbar-expand-md bg-light navbar-light sticky-top">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+  <link rel="icon" href="/static/images/icon.png" />
+  <link rel="stylesheet" href="/static/styles/main.css" />
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" />
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
+  <title>Spotify Party</title>
+</head>
+
+<body>
+  <div>
+    <nav class="navbar navbar-expand-md bg-light navbar-light sticky-top">
+      <a href="/">
         <img class="navbar-brand" src="/static/images/icon.png" width="30" />
-        <div class="bar-title">Spotify Party</div>
-        <button
-          class="navbar-toggler"
-          type="button"
-          data-toggle="collapse"
-          data-target="#collapsibleNavbar"
-        >
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="collapsibleNavbar">
-          <ul class="navbar-nav ml-auto">
-            <li class="nav-item active">
-              <a class="nav-link" href="/">Home</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/login">Login</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/logout">Logout</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/users">Users</a>
-            </li>
-          </ul>
-        </div>
-      </nav>
+      </a>
+      <div class="bar-title"><span style="color:#621587;">S</span><span style="color:#7517b6;">p</span><span
+          style="color:#8819e5;">o</span><span style="color:#6715e9;">t</span><span style="color:#4510ee;">i</span><span
+          style="color:#240cf2;">f</span><span style="color:#1264f9;">y</span><span style="color:#00bcff;"> </span><span
+          style="color:#25bcda;">P</span><span style="color:#4bbcb5;">a</span><span style="color:#70bc90;">r</span><span
+          style="color:#92c578;">t</span><span style="color:#b4ce60;">y</span>
+      </div>
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#collapsibleNavbar">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="collapsibleNavbar">
+        <ul class="navbar-nav ml-auto">
+          <li class="nav-item active">
+            <a class="nav-link" href="/">Home</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/login">Login</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/logout">Logout</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/users">Users</a>
+          </li>
+        </ul>
+      </div>
+    </nav>
 
-      <h1>{{ item }}</h1>
-      <div class="center">
-        <form action="/toggle_playback" method="POST">
-          <button type="submit" class="btn">
-            <img class="img-fluid" src='{{ url }}'">
+    <h1>{{ item }}</h1>
+    <div class="center">
+      <form action="/toggle_playback" method="POST">
+        <button type="submit" class="btn">
+          <img class="img-fluid" src='{{ url }}'">
           </button>
         </form>
         <form class=" form-signin" method="POST">
           {{ form.hidden_tag() }} {{ form.song(class="form-control
           form-control-lg", placeholder="Enter Song") }}
-        </form>
-      </div>
+      </form>
     </div>
-  </body>
+  </div>
+</body>
+
 </html>
