@@ -2,6 +2,8 @@
 
 ## Instructions to use
 - **Note:** Must have Spotify Premium
+- **Warning:** Playing a Podcast will make the site crash
+
 1. [Login](https://mrswagbhinav.pythonanywhere.com/login) with your Spotify username.
 2. Your name should appear [here](https://mrswagbhinav.pythonanywhere.com/users).
 3. Start playing a song on Spotify so the website can find that device.
