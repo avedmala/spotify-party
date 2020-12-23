@@ -1,5 +1,8 @@
 # Spotify Party
 
+## Demo
+![Demo Gif](demo.gif)
+
 ## Instructions to use
 - **Note:** Must have Spotify Premium
 - **Warning:** Playing a Podcast will make the site crash
