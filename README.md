@@ -1,4 +1,5 @@
 # Spotify Party
+- **Note:** The web app is not online currently
 
 ## Demo
 ![Demo Gif](demo.gif)
