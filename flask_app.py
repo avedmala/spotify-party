@@ -121,16 +121,21 @@ def party():
     playback = None
 
     if len(User.query.all()) > 0:
-        sp = spotipy.Spotify(auth=User.query.first().token)
-
-    try:
-        playback = sp.current_playback()
-    except:
-        clear_users()
-
-    if playback != None:
-        url = playback["item"]["album"]["images"][0]["url"]
-        item = playback["item"]["name"] + " - " + playback["item"]["artists"][0]["name"]
+        user = User.query.first()
+        sp = spotipy.Spotify(auth=user.token)
+        try:
+            playback = sp.current_playback()
+            if playback is not None:
+                url = playback["item"]["album"]["images"][0]["url"]
+                item = (
+                    playback["item"]["name"]
+                    + " - "
+                    + playback["item"]["artists"][0]["name"]
+                )
+        except spotipy.client.SpotifyException:
+            db.session.delete(user)
+            db.session.commit()
+            return redirect(url_for("party"))
 
     return render_template("party.html", form=form, item=item, url=url)
 
@@ -138,34 +143,34 @@ def party():
 @app.route("/users", methods=["GET", "POST"])
 def users():
     playback = []
-    spotipy_objects = []
-    users = []
     listeners = []
+    users_to_remove = []
+    all_users = User.query.all()
+    valid_users = []
 
-    for user in User.query.all():
-        users.append(user)
-        spotipy_objects.append(spotipy.Spotify(auth=user.token))
-
-    for sp in spotipy_objects:
+    for user in all_users:
+        sp = spotipy.Spotify(auth=user.token)
         try:
-            playback.append(sp.current_playback())
-        except:
-            clear_users()
+            current_playback = sp.current_playback()
+            if current_playback:
+                playback.append(current_playback)
+            valid_users.append(user)
+        except spotipy.client.SpotifyException:
+            users_to_remove.append(user)
+
+    if users_to_remove:
+        for user in users_to_remove:
+            db.session.delete(user)
+        db.session.commit()
+        return redirect(url_for("users"))
 
     for dict_item in playback:
-        if dict_item != None:
-            for key in dict_item:
-                item = (
-                    dict_item["device"]["name"]
-                    + " - "
-                    + dict_item["item"]["name"]
-                    # + " by "
-                    # + dict_item["item"]["artists"][0]["name"]
-                )
-                if item not in listeners:
-                    listeners.append(item)
+        if dict_item:
+            item = f"{dict_item['device']['name']} - {dict_item['item']['name']}"
+            if item not in listeners:
+                listeners.append(item)
 
-    return render_template("users.html", users=users, listeners=listeners)
+    return render_template("users.html", users=valid_users, listeners=listeners)
 
 
 @app.route("/play", methods=["POST"])
