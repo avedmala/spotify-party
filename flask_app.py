@@ -4,7 +4,9 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, BooleanField
 from wtforms.validators import DataRequired
 import spotipy
+from spotipy.client import SpotifyException
 import requests
+from sqlalchemy.exc import IntegrityError
 
 app = Flask(__name__)
 
@@ -62,13 +64,14 @@ def logout():
         if request.form["username"] == "ALL":
             clear_users()
         else:
-            for user in User.query.all():
-                if user.username == request.form["username"]:
-                    db.session.delete(user)
-            try:
-                db.session.commit()
-            except:
-                return "Couldn't log out", 409
+            user = User.query.filter_by(username=request.form["username"]).first()
+            if user:
+                db.session.delete(user)
+                try:
+                    db.session.commit()
+                except IntegrityError:
+                    db.session.rollback()
+                    return "Couldn't log out", 409
     else:
         return render_template("logout.html", form=form)
 
@@ -97,14 +100,29 @@ def api_callback():
         },
     )
 
-    db.session.add(
-        User(username=session["username"], token=res.json().get("access_token"))
-    )
+    res_json = res.json()
+    access_token = res_json.get("access_token")
+
+    if not access_token:
+        return "Failed to retrieve access token.", 400
+
+    username = session.get("username")
+    if not username:
+        return redirect(url_for("login"))
+
+    user = User.query.filter_by(username=username).first()
+
+    if user:
+        user.token = access_token
+    else:
+        user = User(username=username, token=access_token)
+        db.session.add(user)
 
     try:
         db.session.commit()
-    except:
-        return redirect("/")
+    except IntegrityError:
+        db.session.rollback()
+        return "Failed to save user information.", 500
 
     return redirect("/")
 
@@ -118,17 +136,20 @@ def party():
 
     url = "/static/images/default.png"
     item = "Nothing is Playing"
+
+    users = User.query.all()
+    if not users:
+        return render_template("party.html", form=form, item=item, url=url)
+
+    sp = spotipy.Spotify(auth=users[0].token)
+
     playback = None
-
-    if len(User.query.all()) > 0:
-        sp = spotipy.Spotify(auth=User.query.first().token)
-
     try:
         playback = sp.current_playback()
-    except:
-        clear_users()
+    except SpotifyException:
+        return redirect(url_for("logout"))
 
-    if playback != None:
+    if playback and playback.get("item"):
         url = playback["item"]["album"]["images"][0]["url"]
         item = playback["item"]["name"] + " - " + playback["item"]["artists"][0]["name"]
 
@@ -148,22 +169,22 @@ def users():
 
     for sp in spotipy_objects:
         try:
-            playback.append(sp.current_playback())
-        except:
-            clear_users()
+            current = sp.current_playback()
+            if current:
+                playback.append(current)
+        except SpotifyException:
+            # Token might be expired, log out the user
+            return redirect(url_for("logout"))
 
     for dict_item in playback:
-        if dict_item != None:
-            for key in dict_item:
-                item = (
-                    dict_item["device"]["name"]
-                    + " - "
-                    + dict_item["item"]["name"]
-                    # + " by "
-                    # + dict_item["item"]["artists"][0]["name"]
-                )
-                if item not in listeners:
-                    listeners.append(item)
+        if dict_item.get("device") and dict_item.get("item"):
+            item = (
+                dict_item["device"]["name"]
+                + " - "
+                + dict_item["item"]["name"]
+            )
+            if item not in listeners:
+                listeners.append(item)
 
     return render_template("users.html", users=users, listeners=listeners)
 
@@ -175,16 +196,21 @@ def play():
     for user in User.query.all():
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    if len(spotipy_objects) > 0:
-        results = spotipy_objects[0].search(request.form["song"], 10, 0, type="track")
-        uri = results["tracks"]["items"][0]["uri"]
-    else:
+    if not spotipy_objects:
         return "No active device found", 409
+
+    try:
+        results = spotipy_objects[0].search(request.form["song"], 10, 0, type="track")
+        if not results["tracks"]["items"]:
+            return "Song not found", 404
+        uri = results["tracks"]["items"][0]["uri"]
+    except SpotifyException:
+        return "Could not perform search", 500
 
     for sp in spotipy_objects:
         try:
             sp.start_playback(uris=[uri])
-        except:
+        except SpotifyException:
             return "No active device found", 409
 
     return "OK", 200
@@ -201,7 +227,7 @@ def surprise():
         try:
             sp.shuffle(state=True)
             sp.start_playback(context_uri="spotify:playlist:37i9dQZEVXbLRQDuF5jeBp")
-        except:
+        except SpotifyException:
             return "No active device found", 409
 
     return redirect("/")
@@ -216,11 +242,12 @@ def toggle():
 
     for sp in spotipy_objects:
         try:
-            if sp.current_playback()["is_playing"]:
+            playback = sp.current_playback()
+            if playback and playback.get("is_playing"):
                 sp.pause_playback()
             else:
                 sp.start_playback()
-        except:
+        except SpotifyException:
             return redirect("/")
 
     return redirect("/")
@@ -235,7 +262,13 @@ def currently_playing():
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
     for sp in spotipy_objects:
-        playback.append(sp.current_playback())
+        try:
+            current = sp.current_playback()
+            if current:
+                playback.append(current)
+        except SpotifyException:
+            # Ignore users with expired tokens
+            pass
 
     return jsonify(playback)
 
@@ -253,14 +286,16 @@ def list_users():
 
 @app.route("/clear_users")
 def clear_users():
-    for user in User.query.all():
-        db.session.delete(user)
-
-    db.session.commit()
+    try:
+        num_rows_deleted = db.session.query(User).delete()
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
 
     return redirect("/")
 
 
 if __name__ == "__main__":
-    db.create_all()
+    with app.app_context():
+        db.create_all()
     app.run(host="127.0.0.1", port=8000, debug=True)
