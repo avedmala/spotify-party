@@ -4,7 +4,10 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, BooleanField
 from wtforms.validators import DataRequired
 import spotipy
+from spotipy.exceptions import SpotifyException
 import requests
+import logging
+from sqlalchemy.exc import SQLAlchemyError
 
 app = Flask(__name__)
 
@@ -12,6 +15,17 @@ app.config["SECRET_KEY"] = "super secret key"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///app.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = "False"
 app.config["WTF_CSRF_ENABLED"] = False
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('spotify_party.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 db = SQLAlchemy(app)
 
@@ -59,16 +73,22 @@ def login():
 def logout():
     form = UsernameForm()
     if form.is_submitted():
-        if request.form["username"] == "ALL":
+        username = request.form["username"]
+        if username == "ALL":
             clear_users()
         else:
-            for user in User.query.all():
-                if user.username == request.form["username"]:
-                    db.session.delete(user)
-            try:
-                db.session.commit()
-            except:
-                return "Couldn't log out", 409
+            user_to_delete = User.query.filter_by(username=username).first()
+            if user_to_delete:
+                db.session.delete(user_to_delete)
+                try:
+                    db.session.commit()
+                    logger.info(f"User '{username}' logged out successfully")
+                except SQLAlchemyError as e:
+                    db.session.rollback()
+                    logger.error(f"Failed to log out user '{username}': {str(e)}")
+                    return "Couldn't log out", 409
+            else:
+                logger.warning(f"Attempted to log out non-existent user: {username}")
     else:
         return render_template("logout.html", form=form)
 
@@ -85,25 +105,48 @@ def auth():
 def api_callback():
     code = request.args.get("code")
 
-    auth_token_url = f"{API_BASE}/api/token"
-    res = requests.post(
-        auth_token_url,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-            "client_id": CLI_ID,
-            "client_secret": CLI_SEC,
-        },
-    )
+    if not code:
+        logger.error("No authorization code received in callback")
+        return redirect("/")
 
-    db.session.add(
-        User(username=session["username"], token=res.json().get("access_token"))
-    )
+    if "username" not in session:
+        logger.error("No username in session during callback")
+        return redirect("/")
+
+    auth_token_url = f"{API_BASE}/api/token"
+    try:
+        res = requests.post(
+            auth_token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": REDIRECT_URI,
+                "client_id": CLI_ID,
+                "client_secret": CLI_SEC,
+            },
+        )
+        res.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to obtain access token from Spotify: {str(e)}")
+        return redirect("/")
+
+    token_data = res.json()
+    access_token = token_data.get("access_token")
+
+    if not access_token:
+        logger.error(f"No access token in Spotify response: {token_data}")
+        return redirect("/")
+
+    username = session["username"]
+    new_user = User(username=username, token=access_token)
+    db.session.add(new_user)
 
     try:
         db.session.commit()
-    except:
+        logger.info(f"User '{username}' authenticated successfully")
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Failed to save user '{username}' to database: {str(e)}")
         return redirect("/")
 
     return redirect("/")
@@ -120,17 +163,29 @@ def party():
     item = "Nothing is Playing"
     playback = None
 
-    if len(User.query.all()) > 0:
-        sp = spotipy.Spotify(auth=User.query.first().token)
+    users = User.query.all()
+    if len(users) > 0:
+        sp = spotipy.Spotify(auth=users[0].token)
 
-    try:
-        playback = sp.current_playback()
-    except:
-        clear_users()
+        try:
+            playback = sp.current_playback()
+        except SpotifyException as e:
+            if e.http_status == 401:
+                # Token expired or invalid - clear users
+                logger.warning(f"Invalid/expired token for user, clearing users: {str(e)}")
+                clear_users()
+            else:
+                logger.error(f"Spotify API error in party(): {str(e)}")
+        except Exception as e:
+            # Unexpected error, log it but don't clear users
+            logger.error(f"Unexpected error fetching playback in party(): {str(e)}")
 
-    if playback != None:
-        url = playback["item"]["album"]["images"][0]["url"]
-        item = playback["item"]["name"] + " - " + playback["item"]["artists"][0]["name"]
+    if playback is not None:
+        try:
+            url = playback["item"]["album"]["images"][0]["url"]
+            item = playback["item"]["name"] + " - " + playback["item"]["artists"][0]["name"]
+        except (KeyError, TypeError) as e:
+            logger.error(f"Error parsing playback data: {str(e)}")
 
     return render_template("party.html", form=form, item=item, url=url)
 
@@ -141,29 +196,43 @@ def users():
     spotipy_objects = []
     users = []
     listeners = []
+    has_auth_error = False
 
     for user in User.query.all():
         users.append(user)
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    for sp in spotipy_objects:
+    for idx, sp in enumerate(spotipy_objects):
         try:
-            playback.append(sp.current_playback())
-        except:
-            clear_users()
+            current_playback = sp.current_playback()
+            playback.append(current_playback)
+        except SpotifyException as e:
+            if e.http_status == 401:
+                # Token expired or invalid
+                logger.warning(f"Invalid/expired token for user {users[idx].username}: {str(e)}")
+                has_auth_error = True
+            else:
+                logger.error(f"Spotify API error for user {users[idx].username}: {str(e)}")
+                playback.append(None)
+        except Exception as e:
+            logger.error(f"Unexpected error fetching playback for user {users[idx].username}: {str(e)}")
+            playback.append(None)
+
+    # Only clear users if there was an auth error
+    if has_auth_error:
+        clear_users()
+        return redirect("/")
 
     for dict_item in playback:
-        if dict_item != None:
-            for key in dict_item:
-                item = (
-                    dict_item["device"]["name"]
-                    + " - "
-                    + dict_item["item"]["name"]
-                    # + " by "
-                    # + dict_item["item"]["artists"][0]["name"]
-                )
-                if item not in listeners:
-                    listeners.append(item)
+        if dict_item is not None:
+            try:
+                device_name = dict_item["device"]["name"]
+                item_name = dict_item["item"]["name"]
+                listener_info = f"{device_name} - {item_name}"
+                if listener_info not in listeners:
+                    listeners.append(listener_info)
+            except (KeyError, TypeError) as e:
+                logger.error(f"Error parsing playback data in users(): {str(e)}")
 
     return render_template("users.html", users=users, listeners=listeners)
 
@@ -171,21 +240,56 @@ def users():
 @app.route("/play", methods=["POST"])
 def play():
     spotipy_objects = []
+    users_list = User.query.all()
 
-    for user in User.query.all():
+    if len(users_list) == 0:
+        logger.warning("Play request with no authenticated users")
+        return "No authenticated users found", 409
+
+    for user in users_list:
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    if len(spotipy_objects) > 0:
-        results = spotipy_objects[0].search(request.form["song"], 10, 0, type="track")
-        uri = results["tracks"]["items"][0]["uri"]
-    else:
-        return "No active device found", 409
+    song_query = request.form.get("song")
+    if not song_query:
+        logger.warning("Play request with no song specified")
+        return "No song specified", 400
 
-    for sp in spotipy_objects:
+    # Search for the song
+    try:
+        results = spotipy_objects[0].search(song_query, 10, 0, type="track")
+        if not results.get("tracks", {}).get("items"):
+            logger.info(f"No results found for song query: {song_query}")
+            return "No results found for that song", 404
+        uri = results["tracks"]["items"][0]["uri"]
+        logger.info(f"Playing song: {song_query} (URI: {uri})")
+    except SpotifyException as e:
+        logger.error(f"Spotify API error searching for song '{song_query}': {str(e)}")
+        return f"Error searching for song: {str(e)}", 500
+    except (KeyError, IndexError) as e:
+        logger.error(f"Error parsing search results for '{song_query}': {str(e)}")
+        return "Error processing search results", 500
+
+    # Start playback for all users
+    playback_errors = []
+    for idx, sp in enumerate(spotipy_objects):
         try:
             sp.start_playback(uris=[uri])
-        except:
-            return "No active device found", 409
+        except SpotifyException as e:
+            username = users_list[idx].username
+            if e.http_status == 404:
+                logger.warning(f"No active device for user {username}")
+                playback_errors.append(f"No active device for {username}")
+            else:
+                logger.error(f"Spotify API error starting playback for {username}: {str(e)}")
+                playback_errors.append(f"Error for {username}: {str(e)}")
+        except Exception as e:
+            username = users_list[idx].username
+            logger.error(f"Unexpected error starting playback for {username}: {str(e)}")
+            playback_errors.append(f"Unexpected error for {username}")
+
+    if playback_errors:
+        error_msg = "; ".join(playback_errors)
+        return f"Playback errors: {error_msg}", 409
 
     return "OK", 200
 
@@ -193,16 +297,53 @@ def play():
 @app.route("/surprise", methods=["POST"])
 def surprise():
     spotipy_objects = []
+    users_list = User.query.all()
 
-    for user in User.query.all():
+    if len(users_list) == 0:
+        logger.warning("Surprise request with no authenticated users")
+        return "No authenticated users found", 409
+
+    for user in users_list:
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    for sp in spotipy_objects:
+    surprise_errors = []
+    for idx, sp in enumerate(spotipy_objects):
+        username = users_list[idx].username
         try:
             sp.shuffle(state=True)
+            logger.info(f"Enabled shuffle for user {username}")
+        except SpotifyException as e:
+            if e.http_status == 404:
+                logger.warning(f"No active device for user {username} when enabling shuffle")
+                surprise_errors.append(f"No active device for {username}")
+                continue
+            else:
+                logger.error(f"Error enabling shuffle for {username}: {str(e)}")
+                surprise_errors.append(f"Shuffle error for {username}")
+                continue
+        except Exception as e:
+            logger.error(f"Unexpected error enabling shuffle for {username}: {str(e)}")
+            surprise_errors.append(f"Unexpected error for {username}")
+            continue
+
+        try:
             sp.start_playback(context_uri="spotify:playlist:37i9dQZEVXbLRQDuF5jeBp")
-        except:
-            return "No active device found", 409
+            logger.info(f"Started surprise playlist for user {username}")
+        except SpotifyException as e:
+            if e.http_status == 404:
+                logger.warning(f"No active device for user {username} when starting playlist")
+                surprise_errors.append(f"No active device for {username}")
+            else:
+                logger.error(f"Error starting playlist for {username}: {str(e)}")
+                surprise_errors.append(f"Playlist error for {username}")
+        except Exception as e:
+            logger.error(f"Unexpected error starting playlist for {username}: {str(e)}")
+            surprise_errors.append(f"Unexpected error for {username}")
+
+    if surprise_errors:
+        error_msg = "; ".join(surprise_errors)
+        logger.warning(f"Surprise completed with errors: {error_msg}")
+        return f"Surprise errors: {error_msg}", 409
 
     return redirect("/")
 
@@ -210,18 +351,46 @@ def surprise():
 @app.route("/toggle_playback", methods=["POST"])
 def toggle():
     spotipy_objects = []
+    users_list = User.query.all()
 
-    for user in User.query.all():
+    if len(users_list) == 0:
+        logger.warning("Toggle playback request with no authenticated users")
+        return redirect("/")
+
+    for user in users_list:
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    for sp in spotipy_objects:
+    toggle_errors = []
+    for idx, sp in enumerate(spotipy_objects):
+        username = users_list[idx].username
         try:
-            if sp.current_playback()["is_playing"]:
+            playback = sp.current_playback()
+            if playback is None:
+                logger.warning(f"No playback state for user {username}")
+                continue
+
+            is_playing = playback.get("is_playing", False)
+            if is_playing:
                 sp.pause_playback()
+                logger.info(f"Paused playback for user {username}")
             else:
                 sp.start_playback()
-        except:
-            return redirect("/")
+                logger.info(f"Started playback for user {username}")
+        except SpotifyException as e:
+            if e.http_status == 404:
+                logger.warning(f"No active device for user {username} during toggle")
+            else:
+                logger.error(f"Spotify API error toggling playback for {username}: {str(e)}")
+                toggle_errors.append(username)
+        except (KeyError, TypeError) as e:
+            logger.error(f"Error parsing playback state for {username}: {str(e)}")
+            toggle_errors.append(username)
+        except Exception as e:
+            logger.error(f"Unexpected error toggling playback for {username}: {str(e)}")
+            toggle_errors.append(username)
+
+    if toggle_errors:
+        logger.warning(f"Toggle completed with errors for users: {', '.join(toggle_errors)}")
 
     return redirect("/")
 
@@ -230,12 +399,21 @@ def toggle():
 def currently_playing():
     playback = []
     spotipy_objects = []
+    users_list = User.query.all()
 
-    for user in User.query.all():
+    for user in users_list:
         spotipy_objects.append(spotipy.Spotify(auth=user.token))
 
-    for sp in spotipy_objects:
-        playback.append(sp.current_playback())
+    for idx, sp in enumerate(spotipy_objects):
+        try:
+            current = sp.current_playback()
+            playback.append(current)
+        except SpotifyException as e:
+            logger.error(f"Spotify API error fetching playback for {users_list[idx].username}: {str(e)}")
+            playback.append(None)
+        except Exception as e:
+            logger.error(f"Unexpected error fetching playback for {users_list[idx].username}: {str(e)}")
+            playback.append(None)
 
     return jsonify(playback)
 
@@ -253,10 +431,22 @@ def list_users():
 
 @app.route("/clear_users")
 def clear_users():
-    for user in User.query.all():
+    users_list = User.query.all()
+    user_count = len(users_list)
+
+    if user_count == 0:
+        logger.info("Clear users called but no users to clear")
+        return redirect("/")
+
+    for user in users_list:
         db.session.delete(user)
 
-    db.session.commit()
+    try:
+        db.session.commit()
+        logger.info(f"Successfully cleared {user_count} user(s)")
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        logger.error(f"Failed to clear users: {str(e)}")
 
     return redirect("/")
 
