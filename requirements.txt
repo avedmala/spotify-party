@@ -3,3 +3,7 @@ Flask-wtf
 Flask-SQLAlchemy
 spotipy
 git+https://github.com/benoitc/gunicorn.git
+pytest
+pytest-flask
+pytest-cov
+pytest-mock
