@@ -1,0 +1,3 @@
+## 2025-01-30 - [Flask/SQLAlchemy Performance Anti-patterns]
+**Learning:** Using `len(User.query.all()) > 0` or `for user in User.query.all(): if user.username == ...` are major bottlenecks in Flask-SQLAlchemy because they load all records into memory. Also, found a redundant nested loop `for key in dict_item` that did not use the key, multiplying processing time by the number of keys in the dictionary.
+**Action:** Use `User.query.first()` for existence checks, `filter_by().first()` for targeted searches, and `db.session.query(User).delete()` for bulk deletions. Always check if nested loops over dictionaries actually need to iterate over keys.
