@@ -50,7 +50,8 @@ img {
     margin-right: auto;
 }
 
-.form-signin .form-control {
+.form-signin .form-control,
+.form-signin .btn {
     width: 300px;
     margin-top: 20px;
     margin-left: auto;
