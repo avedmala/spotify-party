@@ -16,7 +16,7 @@
   <div>
     <nav class="navbar navbar-expand-md bg-light navbar-light sticky-top">
       <a href="/">
-        <img class="navbar-brand" src="/static/images/icon.png" width="30" />
+        <img class="navbar-brand" src="/static/images/icon.png" width="30" alt="Spotify Party Logo" />
       </a>
       <div class="bar-title"><span style="color:#621587;">S</span><span style="color:#7517b6;">p</span><span
           style="color:#8819e5;">o</span><span style="color:#6715e9;">t</span><span style="color:#4510ee;">i</span><span
@@ -48,13 +48,15 @@
     <h1>{{ item }}</h1>
     <div class="center">
       <form action="/toggle_playback" method="POST">
-        <button type="submit" class="btn">
-          <img class="img-fluid" src='{{ url }}'">
-          </button>
-        </form>
-        <form class=" form-signin" method="POST">
-          {{ form.hidden_tag() }} {{ form.song(class="form-control
-          form-control-lg", placeholder="Enter Song") }}
+        <button type="submit" class="btn" aria-label="Toggle Playback">
+          <img class="img-fluid" src="{{ url }}" alt="Album Artwork">
+        </button>
+      </form>
+      <form class="form-signin" method="POST">
+        {{ form.hidden_tag() }}
+        <label for="song" class="sr-only">Enter Song</label>
+        {{ form.song(class="form-control form-control-lg", placeholder="Enter Song") }}
+        <button class="btn btn-lg btn-primary mt-2" type="submit">Play Song</button>
       </form>
     </div>
   </div>

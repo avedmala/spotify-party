@@ -15,7 +15,7 @@
 <body class="text-center">
     <nav class="navbar navbar-expand-md bg-light navbar-light sticky-top">
         <a href="/">
-            <img class="navbar-brand" src="/static/images/icon.png" width="30" />
+            <img class="navbar-brand" src="/static/images/icon.png" width="30" alt="Spotify Party Logo" />
         </a>
         <div class="bar-title"><span style="color:#621587;">S</span><span style="color:#7517b6;">p</span><span
                 style="color:#8819e5;">o</span><span style="color:#6715e9;">t</span><span
@@ -48,10 +48,12 @@
 
     <form method="POST" class="form-signin">
         <a href="/">
-            <img class="mb-4" src="/static/images/icon.png" width="72" height="72">
+            <img class="mb-4" src="/static/images/icon.png" width="72" height="72" alt="Spotify Party Logo">
         </a>
         <h1 class="h3 mb-3 font-weight-normal">Please Log In</h1>
+        <label for="username" class="sr-only">Username</label>
         {{ form.username(class="form-control form-control-lg", placeholder="Username") }}
+        <button class="btn btn-lg btn-primary mt-2" type="submit">Log In</button>
     </form>
 </body>
 
