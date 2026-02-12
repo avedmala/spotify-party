@@ -62,9 +62,10 @@ def logout():
         if request.form["username"] == "ALL":
             clear_users()
         else:
-            for user in User.query.all():
-                if user.username == request.form["username"]:
-                    db.session.delete(user)
+            # Performance: Use database filter instead of linear scan of all users
+            user = User.query.filter_by(username=request.form["username"]).first()
+            if user:
+                db.session.delete(user)
             try:
                 db.session.commit()
             except:
@@ -120,13 +121,15 @@ def party():
     item = "Nothing is Playing"
     playback = None
 
-    if len(User.query.all()) > 0:
-        sp = spotipy.Spotify(auth=User.query.first().token)
+    # Performance: Avoid loading all users into memory to check for existence
+    user = User.query.first()
+    if user:
+        sp = spotipy.Spotify(auth=user.token)
 
-    try:
-        playback = sp.current_playback()
-    except:
-        clear_users()
+        try:
+            playback = sp.current_playback()
+        except:
+            clear_users()
 
     if playback != None:
         url = playback["item"]["album"]["images"][0]["url"]
@@ -154,16 +157,14 @@ def users():
 
     for dict_item in playback:
         if dict_item != None:
-            for key in dict_item:
-                item = (
-                    dict_item["device"]["name"]
-                    + " - "
-                    + dict_item["item"]["name"]
-                    # + " by "
-                    # + dict_item["item"]["artists"][0]["name"]
-                )
-                if item not in listeners:
-                    listeners.append(item)
+            # Performance: Removed redundant loop over dictionary keys
+            item = (
+                dict_item["device"]["name"]
+                + " - "
+                + dict_item["item"]["name"]
+            )
+            if item not in listeners:
+                listeners.append(item)
 
     return render_template("users.html", users=users, listeners=listeners)
 
@@ -253,9 +254,8 @@ def list_users():
 
 @app.route("/clear_users")
 def clear_users():
-    for user in User.query.all():
-        db.session.delete(user)
-
+    # Performance: Bulk delete instead of looping through all users
+    db.session.query(User).delete()
     db.session.commit()
 
     return redirect("/")
